@@ -86,7 +86,7 @@ def _chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
 
 
 def _file_hash(path: Path) -> str:
-    h = hashlib.md5()
+    h = hashlib.sha256()
     h.update(path.read_bytes())
     return h.hexdigest()
 

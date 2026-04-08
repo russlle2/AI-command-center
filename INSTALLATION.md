@@ -40,13 +40,23 @@
 
 1. Open [Google Colab](https://colab.research.google.com/)
 2. Upload **`notebooks/01_qlora_finetuning.ipynb`** (File → Upload notebook)
-3. Set runtime to **A100 GPU** (Runtime → Change runtime type → A100)
-4. Run all cells.  Enter your HuggingFace token when prompted.
-5. Training takes ~3–6 hours on A100 80 GB.  Checkpoints auto-save to your Google Drive.
+3. Set runtime to **H100 GPU** (Runtime → Change runtime type → H100)
+4. Run cells top-to-bottom.  Enter your HuggingFace token when prompted.
+5. Training takes ~2–3 hours on H100 80 GB.  Checkpoints auto-save every 500 steps to:
+   - Colab: `/content/drive/MyDrive/AI-command-center/checkpoints/`
+   - Windows G: drive: `G:\AI-command-center\checkpoints\`
 6. After training, open **`notebooks/02_quantize_export.ipynb`** and run it to export the GGUF.
 
-> **No A100?**  Use one of these alternatives:
-> - [Kaggle](https://kaggle.com) — free 2× T4 / H100 × 30 h per week
+**What the notebook does (FSDP + QLoRA stack):**
+- **NF4 4-bit** quantization via `BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16)`
+- **FSDP** via `accelerate` config (`FULL_SHARD`, `TRANSFORMER_BASED_WRAP` on `LlamaDecoderLayer`)
+- **Gradient checkpointing** with `use_reentrant=False` (required for FSDP)
+- `per_device_train_batch_size=1` + `gradient_accumulation_steps=16`
+- **Flash Attention 2** for H100-native speed
+- Saves every **500 steps** to Google Drive (G: drive on Windows)
+
+> **No H100?**  Use one of these alternatives:
+> - [Kaggle](https://kaggle.com) — free 2× H100 × 30 h per week (FSDP will auto-use both GPUs)
 > - [Lambda Labs](https://lambdalabs.com) — ~$2/h for H100
 > - [RunPod](https://runpod.io) — ~$2–3/h for A100 80 GB
 
@@ -262,9 +272,13 @@ a second GPU in NVLink.
 - Verify CUDA 12.1 is installed: `nvcc --version`
 
 ### Fine-tuning crashes on Colab with OOM
-- Use A100 80 GB (not T4 or V100) — 70B requires at least 48 GB VRAM with QLoRA
-- Reduce `MAX_SEQ_LENGTH` to 1024 in the notebook
-- Reduce `BATCH_SIZE` to 1
+- Use H100 80 GB (not T4 or V100) — 70B requires ≥ 40 GB VRAM with NF4 4-bit
+- Reduce `MAX_SEQ_LENGTH` to 1024 in the configuration cell
+- The notebook already uses `per_device_train_batch_size=1` (minimum possible)
+- If still OOM, set `GRAD_ACCUM = 8` and `LORA_R = 8` in the config cell
+- The FSDP config cell sets `fsdp_cpu_ram_efficient_loading: false` intentionally —
+  bitsandbytes NF4 quantization requires CUDA and cannot run on CPU; each rank loads
+  a full 4-bit copy (~35 GB) of the base model to its own GPU
 
 ### RAG index is empty / finds nothing
 - Check that `RAG_DOCS_DIR` points to the right folder

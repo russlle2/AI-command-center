@@ -57,13 +57,15 @@ CODE_MODEL_PATH: str = os.getenv(
 CODE_N_GPU_LAYERS: int = int(os.getenv("CODE_N_GPU_LAYERS", "99"))
 
 # ── RAG index ──────────────────────────────────────────────────────────────
+# Default falls back to the current user's Documents folder so the path
+# works regardless of the Windows username or OS.
 RAG_DOCS_DIR: str = os.getenv(
     "RAG_DOCS_DIR",
-    r"C:\Users\Administrator\Documents",
+    os.path.join(os.path.expanduser("~"), "Documents"),
 )
 RAG_INDEX_DIR: str = os.getenv(
     "RAG_INDEX_DIR",
-    r"C:\Users\Administrator\Documents\rag_index",
+    os.path.join(os.path.expanduser("~"), "Documents", "rag_index"),
 )
 RAG_EMBEDDING_MODEL: str = os.getenv(
     "RAG_EMBEDDING_MODEL",

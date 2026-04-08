@@ -79,10 +79,11 @@ class VLMAgent:
         # ── Resolve image path from prompt if not given explicitly ──────────
         if image_path is None:
             import re
-            match = re.search(r"\[image:\s*(.+?)\]", prompt)
+            # Use [^\]]+ instead of .+? to avoid ReDoS on crafted input.
+            match = re.search(r"\[image:\s*([^\]]+)\]", prompt)
             if match:
                 image_path = match.group(1).strip()
-                prompt = re.sub(r"\[image:\s*.+?\]", "", prompt).strip()
+                prompt = re.sub(r"\[image:\s*[^\]]+\]", "", prompt).strip()
 
         model, processor = _get_model()
         import torch

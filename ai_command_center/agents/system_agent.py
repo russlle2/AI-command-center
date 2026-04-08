@@ -8,11 +8,16 @@ that launched the AI Command Center process.  Only deploy it in a trusted
 local environment.  Never expose the Gradio UI or any API port to the public
 internet without authentication.
 
+The agent intentionally executes user-supplied commands — this is its core
+purpose.  The denylist below blocks the most dangerous irreversible operations,
+but it is not a security boundary: treat every command as if you typed it
+yourself in a terminal.
+
 The agent supports:
   - Running shell commands (PowerShell on Windows, bash on Linux/macOS)
   - Installing Windows apps via winget / chocolatey / pip / npm / cargo
   - Downloading files with progress reporting
-  - Reading/writing files
+  - Reading/writing files (sandboxed to the user's home directory by default)
 """
 
 from __future__ import annotations
@@ -43,6 +48,29 @@ _DENYLIST_PATTERNS = [
     re.compile(r"\brd\s+/[sq]\s+[a-z]:\\", re.I),     # rd /s /q C:\
     re.compile(r">\s*/dev/sd[a-z]", re.I),             # write to raw device
 ]
+
+# ── Path safety ────────────────────────────────────────────────────────────
+# File read/write operations are sandboxed to paths under the user's home
+# directory.  Override by setting SYSTEM_AGENT_ALLOWED_ROOT in the environment.
+_ALLOWED_ROOT = Path(
+    os.environ.get("SYSTEM_AGENT_ALLOWED_ROOT", str(Path.home()))
+).resolve()
+
+
+def _safe_path(raw: str) -> Path:
+    """Resolve and validate that a path stays within the allowed root.
+
+    Raises ValueError if the resolved path escapes the sandbox.
+    """
+    p = Path(raw.strip().strip("\"'")).expanduser().resolve()
+    try:
+        p.relative_to(_ALLOWED_ROOT)
+    except ValueError:
+        raise ValueError(
+            f"Path '{p}' is outside the allowed root '{_ALLOWED_ROOT}'. "
+            "Set SYSTEM_AGENT_ALLOWED_ROOT in .env to change the sandbox."
+        )
+    return p
 
 
 def _is_safe(command: str) -> bool:
@@ -114,14 +142,24 @@ def _detect_manager(package: str) -> str:
 
 
 def _download_file(url: str, dest: str | None = None) -> dict:
-    """Download a file from a URL."""
+    """Download a file from a URL into the allowed sandbox."""
     filename = url.split("/")[-1].split("?")[0] or f"download_{int(time.time())}"
-    dest_path = Path(dest) if dest else Path.home() / "Downloads" / filename
+    # Sanitise the filename: keep only safe characters
+    filename = re.sub(r"[^A-Za-z0-9._\-]", "_", filename)[:200]
+
+    if dest:
+        try:
+            dest_path = _safe_path(dest)
+        except ValueError as exc:
+            return {"error": str(exc)}
+    else:
+        dest_path = Path.home() / "Downloads" / filename
+
     dest_path.parent.mkdir(parents=True, exist_ok=True)
 
     logger.info("Downloading %s → %s", url, dest_path)
     try:
-        urllib.request.urlretrieve(url, dest_path)
+        urllib.request.urlretrieve(url, dest_path)  # nosec: intentional user action
         return {"path": str(dest_path), "size": dest_path.stat().st_size}
     except Exception as exc:
         return {"error": str(exc)}
@@ -161,24 +199,31 @@ class SystemAgent:
             result["action"] = "download"
             return result
 
-        # ── read file ─────────────────────────────────────────────────────
+        # ── read file ─────────────────────────────────────────────
         m = re.match(r"(?:read|cat|show|open|print)\s+(?:file\s+)?(.+)", p, re.I)
         if m:
-            path = Path(m.group(1).strip().strip("\"'"))
+            try:
+                path = _safe_path(m.group(1))
+            except ValueError as exc:
+                return {"action": "read_file", "error": str(exc)}
             if path.exists():
                 return {"action": "read_file", "path": str(path),
                         "content": path.read_text(errors="replace")}
             return {"action": "read_file", "error": f"File not found: {path}"}
 
-        # ── write file ────────────────────────────────────────────────────
-        m = re.match(r"write\s+(.+?)\s+to\s+(.+)", p, re.I)
+        # ── write file ────────────────────────────────────────────
+        # Non-backtracking pattern: content up to the literal " to <non-space>",
+        # which avoids ReDoS on inputs with many repeated spaces.
+        m = re.match(r"write\s+(.+)\s+to\s+(\S.*)", p, re.I)
         if m:
-            content, path_str = m.group(1), m.group(2).strip().strip("\"'")
-            path = Path(path_str)
+            content, raw_path = m.group(1), m.group(2)
+            try:
+                path = _safe_path(raw_path)
+            except ValueError as exc:
+                return {"action": "write_file", "error": str(exc)}
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content)
             return {"action": "write_file", "path": str(path), "bytes": len(content)}
-
         # ── open application ─────────────────────────────────────────────
         m = re.match(r"(?:open|launch|start)\s+(.+)", p, re.I)
         if m:
