@@ -1,0 +1,15 @@
+.env
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+*.gguf
+*.bin
+*.safetensors
+outputs/
+rag_index/
+merged_model/
+checkpoints/

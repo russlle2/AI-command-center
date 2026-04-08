@@ -1,0 +1,66 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# AI Command Center — Python requirements
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Install all dependencies (Windows PowerShell, inside your venv):
+#
+#   pip install -r requirements.txt
+#
+# For llama-cpp-python with CUDA support (RTX 5090) use:
+#
+#   pip install llama-cpp-python --extra-index-url \
+#       https://abetlen.github.io/llama-cpp-python/whl/cu121
+#
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── Core ──────────────────────────────────────────────────────────────────
+python-dotenv>=1.0.0
+
+# ── LLM inference (local GGUF via llama.cpp) ──────────────────────────────
+# Install the CUDA wheel separately (see note above)
+# llama-cpp-python>=0.2.90   # uncomment after manual CUDA install
+
+# ── HuggingFace / Transformers ────────────────────────────────────────────
+transformers>=4.45.0
+huggingface_hub>=0.25.0
+accelerate>=0.34.0
+sentencepiece>=0.2.0
+protobuf>=4.25.0
+tokenizers>=0.20.0
+
+# ── QLoRA / Fine-tuning (Colab only — not required for local inference) ───
+# peft>=0.12.0
+# trl>=0.11.0
+# bitsandbytes>=0.43.0
+# unsloth  # install via: pip install unsloth[colab-new] @ git+...
+
+# ── Diffusers (text-to-image / text-to-video) ─────────────────────────────
+diffusers>=0.30.0
+torch>=2.4.0
+torchvision>=0.19.0
+# xformers>=0.0.28   # optional — speeds up diffusion on CUDA
+safetensors>=0.4.3
+invisible_watermark>=0.2.0  # required by FLUX
+
+# ── Vision ────────────────────────────────────────────────────────────────
+Pillow>=10.4.0
+qwen-vl-utils>=0.0.2          # Qwen2-VL helper utilities
+
+# ── RAG ───────────────────────────────────────────────────────────────────
+chromadb>=0.5.0
+sentence-transformers>=3.0.0
+
+# ── Document parsing (for RAG) ────────────────────────────────────────────
+pymupdf>=1.24.0               # PDF parsing (fast)
+pypdf>=4.0.0                  # PDF fallback
+python-docx>=1.1.0            # DOCX parsing
+beautifulsoup4>=4.12.0        # HTML parsing
+lxml>=5.0.0
+
+# ── UI ────────────────────────────────────────────────────────────────────
+gradio>=5.0.0
+
+# ── Utilities ─────────────────────────────────────────────────────────────
+tqdm>=4.66.0
+numpy>=1.26.0
+requests>=2.32.0
