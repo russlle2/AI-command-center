@@ -28,10 +28,14 @@ sentencepiece>=0.2.0
 protobuf>=4.25.0
 tokenizers>=0.20.0
 
+# ── Quantization (local inference — 4-bit VLM) ───────────────────────────
+# bitsandbytes enables 4-bit quantization for Qwen2-VL-7B, reducing VRAM
+# from ~16 GB to ~4 GB.  Install the CUDA version:
+bitsandbytes>=0.44.0
+
 # ── QLoRA / Fine-tuning (Colab only — not required for local inference) ───
 # peft>=0.12.0
 # trl>=0.11.0
-# bitsandbytes>=0.44.0
 # flash-attn  # H100 Flash Attention 2 — install in Colab via:
 #             # pip install flash-attn --no-build-isolation
 

@@ -4,6 +4,9 @@ Text-to-Image agent — uses FLUX.1-dev (or SDXL as fallback).
 FLUX.1-dev is currently one of the highest-quality open-source text-to-image
 models. It requires ~24 GB VRAM for fp16 inference, which exactly fits the
 RTX 5090. The agent automatically offloads to CPU if VRAM is insufficient.
+
+Integrates with the GPU memory manager to unload competing models
+before loading the diffusion pipeline.
 """
 
 from __future__ import annotations
@@ -14,15 +17,27 @@ import time
 from pathlib import Path
 
 from ai_command_center import config
+from ai_command_center.gpu_manager import ModelSlot, ensure_slot, register, unregister
 
 logger = logging.getLogger(__name__)
 
 _pipeline = None
 
 
+def _unload():
+    global _pipeline
+    if _pipeline is not None:
+        del _pipeline
+        _pipeline = None
+    unregister(ModelSlot.TEXT_TO_IMAGE)
+    logger.info("Text-to-image pipeline unloaded.")
+
+
 def _get_pipeline():
     global _pipeline
     if _pipeline is None:
+        ensure_slot(ModelSlot.TEXT_TO_IMAGE)
+
         try:
             import torch
             from diffusers import FluxPipeline
@@ -40,8 +55,10 @@ def _get_pipeline():
         )
 
         if torch.cuda.is_available():
-            _pipeline.enable_model_cpu_offload()  # smart CPU/GPU split
+            _pipeline.enable_model_cpu_offload()
         logger.info("Text-to-image pipeline ready.")
+
+        register(ModelSlot.TEXT_TO_IMAGE, estimated_vram_mb=24000, unload_fn=_unload)
     return _pipeline
 
 

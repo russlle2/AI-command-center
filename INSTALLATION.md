@@ -1,6 +1,6 @@
 # AI Command Center — Local Installation Guide
 
-> Platform: **Windows 11**, RTX 5090 (24 GB VRAM), Intel Core Ultra 9 285K,
+> Platform: **Windows 11**, RTX 5090 (24 GB VRAM), Intel Core Ultra 9 275X,
 > 64 GB RAM, 5 TB NVMe SSD
 
 ---
@@ -42,10 +42,13 @@
 2. Upload **`notebooks/01_qlora_finetuning.ipynb`** (File → Upload notebook)
 3. Set runtime to **H100 GPU** (Runtime → Change runtime type → H100)
 4. Run cells top-to-bottom.  Enter your HuggingFace token when prompted.
-5. Training takes ~2–3 hours on H100 80 GB.  Checkpoints auto-save every 500 steps to:
+5. If your Colab session times out, just re-run cells 3-8 — the notebook
+   auto-detects the latest checkpoint and resumes training from where it
+   left off.
+6. Training takes ~2–3 hours on H100 80 GB.  Checkpoints auto-save every 500 steps to:
    - Colab: `/content/drive/MyDrive/AI-command-center/checkpoints/`
    - Windows G: drive: `G:\AI-command-center\checkpoints\`
-6. After training, open **`notebooks/02_quantize_export.ipynb`** and run it to export the GGUF.
+7. After training, open **`notebooks/02_quantize_export.ipynb`** and run it to export the GGUF.
 
 **What the notebook does (FSDP + QLoRA stack):**
 - **NF4 4-bit** quantization via `BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16)`
@@ -53,6 +56,8 @@
 - **Gradient checkpointing** with `use_reentrant=False` (required for FSDP)
 - `per_device_train_batch_size=1` + `gradient_accumulation_steps=16`
 - **Flash Attention 2** for H100-native speed
+- 2% eval holdout for validation loss tracking
+- **Auto-resume** from latest checkpoint on re-run
 - Saves every **500 steps** to Google Drive (G: drive on Windows)
 
 > **No H100?**  Use one of these alternatives:
@@ -243,21 +248,22 @@ nssm start AICommandCenter
 
 ## GPU memory allocation strategy
 
-With 24 GB VRAM (RTX 5090) and 64 GB RAM, the system uses a time-sharing
-strategy — only one heavy model is loaded at a time:
+With 24 GB VRAM (RTX 5090) and 64 GB RAM, the system uses a **smart
+time-sharing strategy** managed by `ai_command_center/gpu_manager.py`.
+The GPU manager automatically unloads competing models before loading a new one.
 
-| Component | VRAM | RAM (CPU) | Notes |
+| Component | VRAM | RAM (CPU) | Loading |
 |---|---|---|---|
-| Llama-3.1-70B Q4_K_M (orchestrator) | ~22 GB | ~20 GB | 28/80 layers on GPU |
-| DeepSeek-R1-8B Q8_0 (code) | ~9 GB | 0 | Fits entirely on GPU |
-| FLUX.1-dev (t2i) | ~24 GB | ~8 GB | Loaded on demand |
-| CogVideoX-5b (t2v) | ~20 GB | ~10 GB | Loaded on demand |
-| Qwen2-VL-7B (vlm) | ~16 GB | ~4 GB | Loaded on demand |
+| Llama-3.1-70B Q4_K_M (orchestrator) | ~22 GB | ~20 GB | Always resident (28/80 layers on GPU) |
+| DeepSeek-R1-8B Q8_0 (code) | ~9 GB | 0 | Always resident (fits on GPU) |
+| FLUX.1-dev (t2i) | ~24 GB | ~8 GB | On demand (auto-unloads T2V/VLM) |
+| CogVideoX-5b (t2v) | ~20 GB | ~10 GB | On demand (auto-unloads T2I/VLM) |
+| Qwen2-VL-7B-4bit (vlm) | ~4 GB | ~2 GB | On demand (4-bit quantized) |
 
-**Recommendation:** Keep the orchestrator and code model always loaded.
-Diffusion models (FLUX, CogVideoX) are large — if you want faster image/video
-generation, close the orchestrator before generating, or add more VRAM via
-a second GPU in NVLink.
+The VLM now loads in 4-bit quantization (~4 GB) instead of fp16 (~16 GB),
+making it possible to keep it loaded alongside the orchestrator.
+
+Monitor GPU usage in real-time via the **GPU Status** tab in the Gradio UI.
 
 ---
 

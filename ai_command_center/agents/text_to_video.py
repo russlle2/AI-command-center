@@ -2,8 +2,10 @@
 Text-to-Video agent — uses CogVideoX-5b.
 
 CogVideoX-5b is one of the best open-source text-to-video models available.
-It generates 49-frame (≈6 s) 720×480 videos.  With the RTX 5090 it runs in
+It generates 49-frame (~6 s) 720x480 videos.  With the RTX 5090 it runs in
 fp16 with CPU offloading for the VAE decode step.
+
+Integrates with the GPU memory manager to unload competing models.
 """
 
 from __future__ import annotations
@@ -13,19 +15,30 @@ import os
 import time
 
 from ai_command_center import config
+from ai_command_center.gpu_manager import ModelSlot, ensure_slot, register, unregister
 
 logger = logging.getLogger(__name__)
 
 _pipeline = None
 
 
+def _unload():
+    global _pipeline
+    if _pipeline is not None:
+        del _pipeline
+        _pipeline = None
+    unregister(ModelSlot.TEXT_TO_VIDEO)
+    logger.info("Text-to-video pipeline unloaded.")
+
+
 def _get_pipeline():
     global _pipeline
     if _pipeline is None:
+        ensure_slot(ModelSlot.TEXT_TO_VIDEO)
+
         try:
             import torch
             from diffusers import CogVideoXPipeline
-            from diffusers.utils import export_to_video
         except ImportError as exc:
             raise ImportError(
                 "diffusers>=0.30 and torch are required. "
@@ -42,9 +55,11 @@ def _get_pipeline():
 
         if torch.cuda.is_available():
             _pipeline.enable_model_cpu_offload()
-            _pipeline.vae.enable_slicing()   # reduces peak VRAM during VAE
+            _pipeline.vae.enable_slicing()
             _pipeline.vae.enable_tiling()
         logger.info("Text-to-video pipeline ready.")
+
+        register(ModelSlot.TEXT_TO_VIDEO, estimated_vram_mb=20000, unload_fn=_unload)
     return _pipeline
 
 

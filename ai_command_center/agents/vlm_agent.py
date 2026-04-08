@@ -1,8 +1,9 @@
 """
 VLM (Visual Language Model) agent — uses Qwen2-VL-7B-Instruct.
 
-Qwen2-VL-7B is one of the strongest open-source VLMs. It fits comfortably in
-the RTX 5090's 24 GB VRAM in 4-bit quantization and supports:
+Qwen2-VL-7B is one of the strongest open-source VLMs. It can run in 4-bit
+quantization (~4 GB VRAM) on the RTX 5090, leaving headroom for the
+orchestrator. Supports:
   - Image description / captioning
   - OCR (reading text in images)
   - Visual Q&A (answering questions about an image)
@@ -11,12 +12,12 @@ the RTX 5090's 24 GB VRAM in 4-bit quantization and supports:
 
 from __future__ import annotations
 
-import base64
 import logging
 from pathlib import Path
 from typing import Union
 
 from ai_command_center import config
+from ai_command_center.gpu_manager import ModelSlot, ensure_slot, register, unregister
 
 logger = logging.getLogger(__name__)
 
@@ -24,12 +25,26 @@ _model = None
 _processor = None
 
 
+def _unload():
+    global _model, _processor
+    if _model is not None:
+        del _model
+        _model = None
+    if _processor is not None:
+        del _processor
+        _processor = None
+    unregister(ModelSlot.VLM)
+    logger.info("VLM model unloaded.")
+
+
 def _get_model():
     global _model, _processor
     if _model is None:
+        ensure_slot(ModelSlot.VLM)
+
         try:
             import torch
-            from transformers import AutoProcessor, Qwen2VLForConditionalGeneration
+            from transformers import AutoProcessor, Qwen2VLForConditionalGeneration, BitsAndBytesConfig
         except ImportError as exc:
             raise ImportError(
                 "transformers>=4.45 and torch are required."
@@ -42,12 +57,27 @@ def _get_model():
             token = config.HF_TOKEN or None,
         )
 
+        quant_config = None
+        try:
+            import bitsandbytes
+            quant_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=torch.bfloat16,
+            )
+            logger.info("VLM: using 4-bit quantization (~4 GB VRAM)")
+        except ImportError:
+            logger.info("VLM: bitsandbytes not available, loading in full precision")
+
         _model = Qwen2VLForConditionalGeneration.from_pretrained(
             config.VLM_MODEL_ID,
-            torch_dtype = "auto",
-            device_map  = "auto",
-            token       = config.HF_TOKEN or None,
+            quantization_config=quant_config,
+            torch_dtype="auto",
+            device_map="auto",
+            token=config.HF_TOKEN or None,
         )
+
+        register(ModelSlot.VLM, estimated_vram_mb=4000 if quant_config else 16000, unload_fn=_unload)
         logger.info("VLM ready.")
     return _model, _processor
 
@@ -76,10 +106,8 @@ class VLMAgent:
         """
         from PIL import Image
 
-        # ── Resolve image path from prompt if not given explicitly ──────────
         if image_path is None:
             import re
-            # Use [^\]]+ instead of .+? to avoid ReDoS on crafted input.
             match = re.search(r"\[image:\s*([^\]]+)\]", prompt)
             if match:
                 image_path = match.group(1).strip()
@@ -100,7 +128,6 @@ class VLMAgent:
                 }
             ]
         else:
-            # Text-only fallback
             messages = [{"role": "user", "content": prompt}]
 
         text = processor.apply_chat_template(
