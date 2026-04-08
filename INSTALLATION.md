@@ -40,12 +40,16 @@
 
 1. Open [Google Colab](https://colab.research.google.com/)
 2. Upload **`notebooks/01_qlora_finetuning.ipynb`** (File → Upload notebook)
-3. Set runtime to **H100 GPU** (Runtime → Change runtime type → H100)
-4. Run cells top-to-bottom.  Enter your HuggingFace token when prompted.
-5. Training takes ~2–3 hours on H100 80 GB.  Checkpoints auto-save every 500 steps to:
+3. Set runtime to **H100 GPU** (Runtime → Change runtime type → H100).  
+   For a 70B QLoRA job, **H100 80 GB** is the practical choice on Colab; smaller GPUs (T4, L4, A100 40 GB) will **not** reliably fit this workload.  
+   If you use **Kaggle** (often two H100s), the notebook’s FSDP auto-detects multiple GPUs and uses both.
+4. **(Recommended)** Store your Hugging Face token in Colab **Secrets** (Runtime → Secrets), name it `HF_TOKEN`, grant access to the notebook session.  
+   Do **not** paste tokens into chat or commit them to git; the notebooks read `HF_TOKEN` from the environment or Secrets.
+5. Run cells top-to-bottom. If you did not set Secrets, you will be prompted for the token.
+6. Training takes ~2–3 hours on H100 80 GB.  Checkpoints auto-save every 500 steps to:
    - Colab: `/content/drive/MyDrive/AI-command-center/checkpoints/`
    - Windows G: drive: `G:\AI-command-center\checkpoints\`
-6. After training, open **`notebooks/02_quantize_export.ipynb`** and run it to export the GGUF.
+7. After training, open **`notebooks/02_quantize_export.ipynb`** and run it to export the GGUF.
 
 **What the notebook does (FSDP + QLoRA stack):**
 - **NF4 4-bit** quantization via `BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16)`
